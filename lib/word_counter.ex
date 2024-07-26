@@ -1,3 +1,43 @@
+defmodule WordCounter.Accumulator do
+  def accumulate(server, counts) do
+    exit(:todo)
+  end
+end
+
+
+defmodule WordCounter.Counter do
+  use Task
+
+  def start_link({parser, accumulator}) do
+    WordCounter.Parser.demand_page(parser)
+
+    case WordCounter.Parser.wait_for_page() do
+      page -> count_page(accumulator, page)
+      :closed -> exit(:normal)
+    end
+  end
+
+  defp count_page(accumulator, page) do
+    counts =
+      String.split(page) |> Enum.reduce(%{}, fn x, acc -> Map.update(acc, x, 1, &(&1 + 1)) end)
+
+    WordCounter.Accumulator.accumulate(accumulator, counts)
+  end
+end
+
+defmodule WordCounter.CounterSupervisor do
+  use Supervisor
+
+  def init(arg) do
+    # Keyword.get!(arg, :stream)
+    Supervisor.init([],
+      strategy: :one_for_one
+    )
+  end
+
+  def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, opts)
+end
+
 defmodule WordCounter.Parser do
   use GenServer
 
@@ -15,6 +55,7 @@ defmodule WordCounter.Parser do
   def wait_for_page() do
     receive do
       {:page_ready, content} -> content
+      :closed -> :closed
     end
   end
 
