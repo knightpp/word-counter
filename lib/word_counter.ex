@@ -20,6 +20,7 @@ defmodule WordCounter.Supervisor do
     children = [
       WordCounter.Accumulator,
       {WordCounter.Parser, stream},
+      # TODO: this depends on available global names, is there a way to change that?
       {WordCounter.CounterSupervisor, counter_sup_opts}
     ]
 
@@ -42,7 +43,7 @@ defmodule WordCounter.Accumulator do
 
   def start_link(arg) do
     Logger.debug("Creating #{__MODULE__}")
-    GenServer.start_link(__MODULE__, arg)
+    GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
   @spec append(GenServer.server(), Counts.t()) :: :ok
@@ -133,7 +134,8 @@ defmodule WordCounter.Parser do
 
   def start_link(arg) do
     Logger.debug("Creating #{__MODULE__}")
-    GenServer.start_link(__MODULE__, arg)
+    # TODO: how to remove global names?
+    GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
   @spec demand_page(GenServer.server()) :: :ok
