@@ -74,11 +74,11 @@ defmodule WordCounter.Counter do
 
   def start_link(%{parser: parser, accumulator: accumulator}) do
     Logger.debug("Creating #{__MODULE__}")
-    Task.start_link(__MODULE__, :loop, {parser, accumulator})
+    Task.start_link(__MODULE__, :loop, [parser, accumulator])
   end
 
-  @spec loop({GenServer.server(), GenServer.server()}) :: no_return()
-  def loop({parser, accumulator}) do
+  @spec loop(GenServer.server(), GenServer.server()) :: no_return()
+  def loop(parser, accumulator) do
     WordCounter.Parser.demand_page(parser)
 
     case WordCounter.Parser.wait_for_page() do
@@ -86,7 +86,7 @@ defmodule WordCounter.Counter do
       page -> count_page(accumulator, page)
     end
 
-    loop({parser, accumulator})
+    loop(parser, accumulator)
   end
 
   @spec count_page(GenServer.server(), String.t()) :: :ok
@@ -108,10 +108,8 @@ defmodule WordCounter.CounterSupervisor do
     accumulator = Keyword.fetch!(arg, :accumulator)
     children = Keyword.get(arg, :children, 1)
 
-    children =
-      for _ <- 1..children//1 do
-        {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
-      end
+    child = {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
+    children = Stream.repeatedly(fn -> child end) |> Enum.take(children)
 
     Supervisor.init(children, strategy: :one_for_one)
   end
