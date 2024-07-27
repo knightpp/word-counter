@@ -1,7 +1,21 @@
 defmodule WordCounter do
-  def run(counters \\ 1) do
+  use Application
+
+  def start(_type, _args) do
     stream = File.stream!("simplewiki.xml")
-    Supervisor.start_link(WordCounter.Supervisor, %{stream: stream, counters: counters})
+    WordCounter.Supervisor.start_link(%{stream: stream, counters: 2})
+  end
+
+  def run(counters \\ 1) do
+    WordCounter.CounterSupervisor.add_child(
+      WordCounter.CounterSupervisor,
+      WordCounter.Parser,
+      WordCounter.Accumulator,
+      counters
+    )
+
+    # stream = File.stream!("simplewiki.xml")
+    # WordCounter.Supervisor.start_link(%{stream: stream, counters: counters})
   end
 end
 
@@ -28,7 +42,7 @@ defmodule WordCounter.Supervisor do
   end
 
   def start_link(arg) do
-    Logger.debug("Creating #{__MODULE__}")
+    Logger.info("Creating #{__MODULE__}")
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 end
@@ -42,7 +56,7 @@ defmodule WordCounter.Accumulator do
   end
 
   def start_link(arg) do
-    Logger.debug("Creating #{__MODULE__}")
+    Logger.info("Creating #{__MODULE__}")
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
@@ -74,7 +88,7 @@ defmodule WordCounter.Counter do
   use Task, restart: :permanent
 
   def start_link(%{parser: parser, accumulator: accumulator}) do
-    Logger.debug("Creating #{__MODULE__}")
+    Logger.info("Creating #{__MODULE__}")
     Task.start_link(__MODULE__, :loop, [parser, accumulator])
   end
 
@@ -101,23 +115,26 @@ end
 
 defmodule WordCounter.CounterSupervisor do
   require Logger
-  use Supervisor
+  use DynamicSupervisor
 
   @impl true
-  def init(arg) do
-    parser = Keyword.fetch!(arg, :parser)
-    accumulator = Keyword.fetch!(arg, :accumulator)
-    children = Keyword.get(arg, :children, 1)
-
-    child = {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
-    children = Stream.repeatedly(fn -> child end) |> Enum.take(children)
-
-    Supervisor.init(children, strategy: :one_for_one)
+  def init(_arg) do
+    DynamicSupervisor.init(strategy: :one_for_one, max_children: 1024)
   end
 
   def start_link(arg) do
-    Logger.debug("Creating #{__MODULE__}")
-    Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
+    Logger.info("Creating #{__MODULE__}")
+    DynamicSupervisor.start_link(__MODULE__, arg, name: __MODULE__)
+  end
+
+  def add_child(sup, parser, accumulator, children \\ 1) do
+    child = {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
+
+    Stream.repeatedly(fn -> child end)
+    |> Stream.take(children)
+    |> Enum.each(fn child ->
+      {:ok, _} = DynamicSupervisor.start_child(sup, child)
+    end)
   end
 end
 
@@ -126,14 +143,13 @@ defmodule WordCounter.Parser do
   use GenServer
 
   def init(stream) do
-    {:ok, parser} =
-      Task.start_link(fn -> Saxy.parse_stream(stream, WordCounter.Parser.Handler, {}) end)
+    {:ok, parser} = spawn_parser(stream)
 
     {:ok, {[], parser}}
   end
 
   def start_link(arg) do
-    Logger.debug("Creating #{__MODULE__}")
+    Logger.info("Creating #{__MODULE__}")
     # TODO: how to remove global names?
     GenServer.start_link(__MODULE__, arg, name: __MODULE__)
   end
@@ -149,6 +165,10 @@ defmodule WordCounter.Parser do
       {:page_ready, content} -> content
       :closed -> :closed
     end
+  end
+
+  defp spawn_parser(stream) do
+    Task.start_link(fn -> Saxy.parse_stream(stream, WordCounter.Parser.Handler, {}) end)
   end
 
   def handle_cast({:demand_page, from}, {queue, parser}) do
