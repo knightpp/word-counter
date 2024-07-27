@@ -6,31 +6,43 @@ defmodule WordCounter do
 end
 
 defmodule WordCounter.Supervisor do
+  require Logger
   use Supervisor
 
   @impl true
   def init(%{stream: stream, counters: counters}) do
+    counter_sup_opts = [
+      parser: WordCounter.Parser,
+      accumulator: WordCounter.Accumulator,
+      children: counters
+    ]
+
     children = [
       WordCounter.Accumulator,
       {WordCounter.Parser, stream},
-      {WordCounter.CounterSupervisor,
-       [parser: WordCounter.Parser, accumulator: WordCounter.Accumulator, children: counters]}
+      {WordCounter.CounterSupervisor, counter_sup_opts}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
   end
 
   def start_link(arg) do
+    Logger.debug("Creating #{__MODULE__}")
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 end
 
 defmodule WordCounter.Accumulator do
+  require Logger
   use GenServer
 
   def init(_arg) do
-    IO.puts("Accumulator created")
     {:ok, %{}}
+  end
+
+  def start_link(arg) do
+    Logger.debug("Creating #{__MODULE__}")
+    GenServer.start_link(__MODULE__, arg)
   end
 
   @spec append(GenServer.server(), Counts.t()) :: :ok
@@ -57,14 +69,16 @@ defmodule Counts do
 end
 
 defmodule WordCounter.Counter do
-  use Task
+  require Logger
+  use Task, restart: :permanent
 
   def start_link(%{parser: parser, accumulator: accumulator}) do
-    Task.start_link(fn -> loop(parser, accumulator) end)
+    Logger.debug("Creating #{__MODULE__}")
+    Task.start_link(__MODULE__, :loop, {parser, accumulator})
   end
 
-  @spec loop(GenServer.server(), GenServer.server()) :: no_return()
-  defp loop(parser, accumulator) do
+  @spec loop({GenServer.server(), GenServer.server()}) :: no_return()
+  def loop({parser, accumulator}) do
     WordCounter.Parser.demand_page(parser)
 
     case WordCounter.Parser.wait_for_page() do
@@ -72,7 +86,7 @@ defmodule WordCounter.Counter do
       page -> count_page(accumulator, page)
     end
 
-    loop(parser, accumulator)
+    loop({parser, accumulator})
   end
 
   @spec count_page(GenServer.server(), String.t()) :: :ok
@@ -85,6 +99,7 @@ defmodule WordCounter.Counter do
 end
 
 defmodule WordCounter.CounterSupervisor do
+  require Logger
   use Supervisor
 
   @impl true
@@ -94,7 +109,7 @@ defmodule WordCounter.CounterSupervisor do
     children = Keyword.get(arg, :children, 1)
 
     children =
-      for _ <- 0..children//1 do
+      for _ <- 1..children//1 do
         {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
       end
 
@@ -102,11 +117,13 @@ defmodule WordCounter.CounterSupervisor do
   end
 
   def start_link(arg) do
+    Logger.debug("Creating #{__MODULE__}")
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 end
 
 defmodule WordCounter.Parser do
+  require Logger
   use GenServer
 
   def init(stream) do
@@ -114,6 +131,11 @@ defmodule WordCounter.Parser do
       Task.start_link(fn -> Saxy.parse_stream(stream, WordCounter.Parser.Handler, {}) end)
 
     {:ok, {[], parser}}
+  end
+
+  def start_link(arg) do
+    Logger.debug("Creating #{__MODULE__}")
+    GenServer.start_link(__MODULE__, arg)
   end
 
   @spec demand_page(GenServer.server()) :: :ok
