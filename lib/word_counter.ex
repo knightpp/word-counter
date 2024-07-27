@@ -69,12 +69,21 @@ defmodule WordCounter.Accumulator do
     GenServer.call(server, :get)
   end
 
+  @spec size(GenServer.server()) :: integer()
+  def size(server) do
+    GenServer.call(server, :size)
+  end
+
   def handle_call({:append, counts}, _from, acc) do
     {:reply, :ok, Map.merge(counts, acc, fn _, va, vb -> va + vb end)}
   end
 
   def handle_call(:get, _from, acc) do
     {:reply, acc, acc}
+  end
+
+  def handle_call(:size, _from, acc) do
+    {:reply, map_size(acc), acc}
   end
 end
 
@@ -143,6 +152,7 @@ defmodule WordCounter.Parser do
 
   def init(stream) do
     {:ok, parser} = spawn_parser(stream)
+    _ = Process.monitor(parser)
 
     {:ok, {[], parser}}
   end
@@ -178,6 +188,11 @@ defmodule WordCounter.Parser do
   def handle_info({:page_ready, page}, {[first | rest], parser}) do
     send(first, {:page_ready, page})
     {:noreply, {rest, parser}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _from, _reason}, {queue, parser}) do
+    queue |> Enum.each(fn pid -> send(pid, :closed) end)
+    {:noreply, {[], parser}}
   end
 end
 
