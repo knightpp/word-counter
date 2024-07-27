@@ -1,7 +1,7 @@
 defmodule WordCounter do
   def run(counters \\ 1) do
     stream = File.stream!("simplewiki.xml")
-    WordCounter.Supervisor.start_link(%{stream: stream, counters: counters})
+    Supervisor.start_link(WordCounter.Supervisor, %{stream: stream, counters: counters})
   end
 end
 
@@ -91,8 +91,8 @@ defmodule WordCounter.CounterSupervisor do
   def init(arg) do
     parser = Keyword.fetch!(arg, :parser)
     accumulator = Keyword.fetch!(arg, :accumulator)
-
     children = Keyword.get(arg, :children, 1)
+
     children =
       for _ <- 0..children//1 do
         {WordCounter.Counter, %{parser: parser, accumulator: accumulator}}
