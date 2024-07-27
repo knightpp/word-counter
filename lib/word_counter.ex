@@ -3,7 +3,7 @@ defmodule WordCounter do
 
   def start(_type, _args) do
     stream = File.stream!("simplewiki.xml")
-    WordCounter.Supervisor.start_link(%{stream: stream, counters: 2})
+    WordCounter.Supervisor.start_link(stream)
   end
 
   def run(counters \\ 1) do
@@ -24,11 +24,10 @@ defmodule WordCounter.Supervisor do
   use Supervisor
 
   @impl true
-  def init(%{stream: stream, counters: counters}) do
+  def init(stream) do
     counter_sup_opts = [
       parser: WordCounter.Parser,
-      accumulator: WordCounter.Accumulator,
-      children: counters
+      accumulator: WordCounter.Accumulator
     ]
 
     children = [
